@@ -8,7 +8,13 @@ const { WILAYAS } = require('./wilayas');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const STORE_PHONE = '0779562200';
-const CATEGORIES = ['سراويل', 'تيشرت', 'جوارب', 'قبعات', 'أحذية'];
+// Categories are dynamic (admin-managed) but cached in memory for synchronous validation.
+// The cache is refreshed at boot and after every add/delete.
+let CATEGORIES = ['سراويل', 'تيشرت', 'جوارب', 'قبعات', 'أحذية'];
+async function refreshCategories() {
+  try { CATEGORIES = await db.listCategories(); } catch (e) { console.error('categories load failed:', e.message); }
+  return CATEGORIES;
+}
 
 app.use(express.json({ limit: '6mb' })); // large enough for an embedded product image (data URL)
 app.use(express.static(path.join(__dirname, 'public')));
@@ -260,9 +266,30 @@ app.put('/api/admin/shipping/:code', requireAdmin, async (req, res) => {
   res.json({ ok: true, code, shipping });
 });
 
+// --- Admin: categories -------------------------------------------------------------
+app.post('/api/admin/categories', requireAdmin, async (req, res) => {
+  const name = String((req.body || {}).name || '').trim().replace(/\s+/g, ' ');
+  if (name.length < 2 || name.length > 40) return res.status(400).json({ error: 'اسم الفئة يجب أن يكون بين 2 و40 حرفاً' });
+  if (CATEGORIES.includes(name)) return res.status(409).json({ error: 'هذه الفئة موجودة مسبقاً' });
+  await db.addCategory(name);
+  await refreshCategories();
+  res.json({ ok: true, categories: CATEGORIES });
+});
+
+app.delete('/api/admin/categories/:name', requireAdmin, async (req, res) => {
+  const name = String(req.params.name || '').trim();
+  if (!CATEGORIES.includes(name)) return res.status(404).json({ error: 'الفئة غير موجودة' });
+  const count = await db.countActiveProductsInCategory(name);
+  if (count > 0) return res.status(409).json({ error: `لا يمكن حذف الفئة — بها ${count} منتج. احذف أو انقل منتجاتها أولاً` });
+  await db.deleteCategory(name);
+  await refreshCategories();
+  res.json({ ok: true, categories: CATEGORIES });
+});
+
 // --- Boot ---------------------------------------------------------------------------
 (async () => {
   await db.init();
+  await refreshCategories();
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`MB1_shoop store running on 0.0.0.0:${PORT} (${process.env.DATABASE_URL ? 'MySQL' : 'file-storage'} mode)`);
   });

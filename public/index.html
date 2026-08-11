@@ -117,10 +117,17 @@ input:focus,select:focus,textarea:focus{border-color:var(--brand)}
 .cats{display:flex;gap:9px;overflow-x:auto;padding:26px 0 6px;scrollbar-width:none}
 .cats::-webkit-scrollbar{display:none}
 .cat-btn{
+  display:inline-flex;align-items:center;gap:7px;
   white-space:nowrap;padding:9px 20px;border-radius:99px;background:var(--card);
   border:1.5px solid var(--line);color:var(--ink);font-size:.9rem;
 }
 .cat-btn.active{background:var(--brand);border-color:var(--brand);color:#fff;box-shadow:0 4px 14px rgba(124,58,237,.3)}
+.cat-del{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;
+  font-size:.7rem;font-weight:900;background:rgba(220,38,38,.14);color:#dc2626;transition:background .15s}
+.cat-btn.active .cat-del{background:rgba(255,255,255,.28);color:#fff}
+.cat-del:hover{background:#dc2626;color:#fff}
+.cat-add{border-style:dashed;border-color:var(--brand);color:var(--brand);font-weight:800}
+.cat-add:hover{background:var(--accent-soft)}
 .section-title{display:flex;align-items:baseline;gap:12px;margin:26px 0 4px}
 .section-title h2{font-size:1.7rem;color:var(--brand)}
 .section-title .count{font-size:.85rem;color:var(--ink-soft)}
@@ -501,6 +508,7 @@ const CAT_EMOJI = { 'سراويل': '👖', 'تيشرت': '👕', 'جوارب': 
 
 function renderCategories() {
   const bar = $('catBar');
+  const isAdmin = USER && USER.isAdmin;
   bar.innerHTML = '';
   const all = document.createElement('button');
   all.className = 'cat-btn' + (activeCategory === null ? ' active' : '');
@@ -510,10 +518,52 @@ function renderCategories() {
   META.categories.forEach(c => {
     const b = document.createElement('button');
     b.className = 'cat-btn' + (activeCategory === c ? ' active' : '');
-    b.textContent = (CAT_EMOJI[c] || '') + ' ' + c;
     b.onclick = () => { activeCategory = c; loadProducts(); };
+    const label = document.createElement('span');
+    label.textContent = (CAT_EMOJI[c] || '') + ' ' + c;
+    b.appendChild(label);
+    if (isAdmin) {
+      const x = document.createElement('span');
+      x.className = 'cat-del';
+      x.textContent = '✕';
+      x.title = 'حذف الفئة';
+      x.onclick = (e) => { e.stopPropagation(); deleteCategory(c); };
+      b.appendChild(x);
+    }
     bar.appendChild(b);
   });
+  if (isAdmin) {
+    const add = document.createElement('button');
+    add.className = 'cat-btn cat-add';
+    add.textContent = '＋ إضافة فئة';
+    add.title = 'إضافة فئة جديدة';
+    add.onclick = addCategory;
+    bar.appendChild(add);
+  }
+}
+
+async function addCategory() {
+  const name = (prompt('اسم الفئة الجديدة:') || '').trim();
+  if (!name) return;
+  try {
+    const r = await api('/api/admin/categories', { method: 'POST', body: { name } });
+    META.categories = r.categories;
+    populateCategorySelect();
+    renderCategories();
+    toast('تمت إضافة الفئة ✓');
+  } catch (e) { toast('⚠️ ' + e.message); }
+}
+
+async function deleteCategory(name) {
+  if (!confirm(`حذف الفئة «${name}»؟`)) return;
+  try {
+    const r = await api('/api/admin/categories/' + encodeURIComponent(name), { method: 'DELETE' });
+    META.categories = r.categories;
+    if (activeCategory === name) activeCategory = null;
+    populateCategorySelect();
+    loadProducts();
+    toast('تم حذف الفئة ✓');
+  } catch (e) { toast('⚠️ ' + e.message); }
 }
 
 async function loadProducts() {
@@ -750,12 +800,17 @@ function applyUserUI() {
 // ---------------- admin ----------------
 const STATUS_AR = { pending: 'قيد التأكيد', confirmed: 'مؤكدة', shipped: 'قيد الشحن', delivered: 'تم التسليم', cancelled: 'ملغاة' };
 
+function populateCategorySelect() {
+  const sel = $('pfCategory');
+  if (sel) sel.innerHTML = META.categories.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+}
+
 function openProductForm(id) {
   editingProductId = id || null;
   pfImageData = '';
   $('pfFile').value = '';
   const sel = $('pfCategory');
-  sel.innerHTML = META.categories.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+  populateCategorySelect();
   $('pfMsg').textContent = '';
   if (id) {
     const p = PRODUCTS.find(x => x.id === id);

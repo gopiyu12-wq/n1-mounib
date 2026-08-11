@@ -4,6 +4,8 @@ const bcrypt = require('bcryptjs');
 const ADMIN_EMAIL = 'fopilu12@gmail.com';
 const ADMIN_PW = 'Qusar2006';
 
+const SEED_CATEGORIES = ['سراويل', 'تيشرت', 'جوارب', 'قبعات', 'أحذية'];
+
 const SEED_PRODUCTS = [
   { name: 'تيشرت قطني MB1 كلاسيك', category: 'تيشرت', price: 2500, description: 'قطن 100% خامة ثقيلة' },
   { name: 'تيشرت أوفرسايز أسود', category: 'تيشرت', price: 2900, description: 'قصّة عصرية واسعة' },
@@ -74,6 +76,10 @@ function mysqlImpl(url) {
       code INT PRIMARY KEY,
       shipping INT NOT NULL
     )`);
+    await pool.execute(`CREATE TABLE IF NOT EXISTS categories (
+      name VARCHAR(60) PRIMARY KEY,
+      sort_order INT NOT NULL DEFAULT 0
+    )`);
 
     // Migration: add delivery_type to pre-existing orders tables
     try {
@@ -98,6 +104,15 @@ function mysqlImpl(url) {
           'INSERT INTO products (name, category, price, description) VALUES (?, ?, ?, ?)',
           [p.name, p.category, p.price, p.description]
         );
+      }
+    }
+
+    // Seed categories only if table is empty
+    const [cats] = await pool.execute('SELECT COUNT(*) AS c FROM categories');
+    if (cats[0].c === 0) {
+      let i = 0;
+      for (const name of SEED_CATEGORIES) {
+        await pool.execute('INSERT INTO categories (name, sort_order) VALUES (?, ?)', [name, i++]);
       }
     }
   }
@@ -207,6 +222,21 @@ function mysqlImpl(url) {
         'INSERT INTO shipping_rates (code, shipping) VALUES (?, ?) ON DUPLICATE KEY UPDATE shipping = ?',
         [code, shipping, shipping]
       );
+    },
+    async listCategories() {
+      const [rows] = await pool.execute('SELECT name FROM categories ORDER BY sort_order ASC, name ASC');
+      return rows.map(r => r.name);
+    },
+    async addCategory(name) {
+      const [m] = await pool.execute('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM categories');
+      await pool.execute('INSERT INTO categories (name, sort_order) VALUES (?, ?)', [name, m[0].next]);
+    },
+    async deleteCategory(name) {
+      await pool.execute('DELETE FROM categories WHERE name = ?', [name]);
+    },
+    async countActiveProductsInCategory(name) {
+      const [r] = await pool.execute('SELECT COUNT(*) AS c FROM products WHERE active = TRUE AND category = ?', [name]);
+      return r[0].c;
     }
   };
 }
@@ -221,7 +251,7 @@ function fileImpl() {
   const DATA_FILE = path.join(DATA_DIR, 'store.json');
   const sessions = new Map(); // sessions stay in memory (users just re-login)
 
-  let state = { users: [], products: [], orders: [], shipping: {}, uid: 1, pid: 1, oid: 1 };
+  let state = { users: [], products: [], orders: [], shipping: {}, categories: [], uid: 1, pid: 1, oid: 1 };
 
   function persist() {
     try {
@@ -246,6 +276,7 @@ function fileImpl() {
         console.error('failed to load store file, starting fresh:', e.message);
       }
       if (!state.shipping) state.shipping = {}; // older store files may lack this
+      if (!Array.isArray(state.categories) || state.categories.length === 0) state.categories = SEED_CATEGORIES.slice();
       if (!state.users.some(u => u.email === ADMIN_EMAIL)) {
         state.users.push({ id: state.uid++, email: ADMIN_EMAIL, password_hash: bcrypt.hashSync(ADMIN_PW, 10), name: 'مسؤول المتجر', is_admin: 1 });
       }
@@ -295,7 +326,11 @@ function fileImpl() {
       if (t) { t.status = status; persist(); }
     },
     async getShippingOverrides() { return { ...state.shipping }; },
-    async setShippingRate(code, shipping) { state.shipping[code] = shipping; persist(); }
+    async setShippingRate(code, shipping) { state.shipping[code] = shipping; persist(); },
+    async listCategories() { return state.categories.slice(); },
+    async addCategory(name) { if (!state.categories.includes(name)) { state.categories.push(name); persist(); } },
+    async deleteCategory(name) { state.categories = state.categories.filter(c => c !== name); persist(); },
+    async countActiveProductsInCategory(name) { return state.products.filter(p => p.active && p.category === name).length; }
   };
 }
 
