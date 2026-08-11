@@ -118,9 +118,16 @@ app.get('/api/auth/me', async (req, res) => {
   res.json({ user: { email: u.email, name: u.name, isAdmin: !!u.is_admin } });
 });
 
+// --- Shipping rates (base list + admin overrides stored in the DB) --------------
+async function effectiveWilayas() {
+  let overrides = {};
+  try { overrides = await db.getShippingOverrides(); } catch (e) { console.error('shipping overrides load failed:', e.message); }
+  return WILAYAS.map(w => (overrides[w.code] != null ? { ...w, shipping: overrides[w.code] } : w));
+}
+
 // --- Public data ---------------------------------------------------------------
-app.get('/api/meta', (req, res) => {
-  res.json({ wilayas: WILAYAS, categories: CATEGORIES, phone: STORE_PHONE, demo: db.demo });
+app.get('/api/meta', async (req, res) => {
+  res.json({ wilayas: await effectiveWilayas(), categories: CATEGORIES, phone: STORE_PHONE, demo: db.demo });
 });
 
 app.get('/api/products', async (req, res) => {
@@ -139,7 +146,7 @@ app.post('/api/orders', async (req, res) => {
     const { customerName, phone, address, wilayaCode, deliveryType, items } = req.body || {};
     if (!customerName || String(customerName).trim().length < 2) return res.status(400).json({ error: 'أدخل الاسم الكامل' });
     if (!phone || !/^0[567]\d{8}$/.test(String(phone).trim())) return res.status(400).json({ error: 'أدخل رقم هاتف جزائري صحيح (يبدأ بـ 05 أو 06 أو 07)' });
-    const wilaya = WILAYAS.find(w => w.code === Number(wilayaCode));
+    const wilaya = (await effectiveWilayas()).find(w => w.code === Number(wilayaCode));
     if (!wilaya) return res.status(400).json({ error: 'اختر الولاية' });
     const delivery = deliveryType === 'office' ? 'office' : 'home';
     // Office (stop-desk) delivery is 200 DZD cheaper than home, with a 200 DZD floor
@@ -235,6 +242,22 @@ app.put('/api/admin/orders/:id/status', requireAdmin, async (req, res) => {
   if (!ORDER_STATUSES.includes(status)) return res.status(400).json({ error: 'حالة غير صالحة' });
   await db.updateOrderStatus(Number(req.params.id), status);
   res.json({ ok: true });
+});
+
+// --- Admin: shipping rates ---------------------------------------------------------
+app.get('/api/admin/shipping', requireAdmin, async (req, res) => {
+  res.json({ wilayas: await effectiveWilayas() });
+});
+
+app.put('/api/admin/shipping/:code', requireAdmin, async (req, res) => {
+  const code = Number(req.params.code);
+  if (!WILAYAS.some(w => w.code === code)) return res.status(400).json({ error: 'ولاية غير صالحة' });
+  const shipping = Math.round(Number((req.body || {}).shipping));
+  if (!Number.isFinite(shipping) || shipping < 0 || shipping > 100000) {
+    return res.status(400).json({ error: 'أدخل سعر توصيل صحيحاً (0 إلى 100000)' });
+  }
+  await db.setShippingRate(code, shipping);
+  res.json({ ok: true, code, shipping });
 });
 
 // --- Boot ---------------------------------------------------------------------------

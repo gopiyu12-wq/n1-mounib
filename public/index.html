@@ -261,6 +261,7 @@ footer .fphone{direction:ltr;display:inline-block;font-weight:800;color:var(--in
   <div class="abtns">
     <button onclick="openProductForm()">+ إضافة منتج</button>
     <button onclick="openOrders()">📦 الشحنات والطلبات <span id="ordersCount"></span></button>
+    <button onclick="openShipping()">🚚 أسعار التوصيل</button>
   </div>
 </div>
 
@@ -427,6 +428,21 @@ footer .fphone{direction:ltr;display:inline-block;font-weight:800;color:var(--in
       </table>
     </div>
     <p id="ordersEmpty" style="text-align:center;color:var(--ink-soft);padding:26px;display:none">لا توجد طلبات بعد</p>
+  </div>
+</div>
+
+<!-- Admin: shipping rates editor -->
+<div class="modal" id="shippingModal">
+  <div class="modal-box wide">
+    <div class="modal-head"><h3>🚚 أسعار التوصيل (سعر المنزل لكل ولاية)</h3><button class="close-x" onclick="closeModal('shippingModal')">✕</button></div>
+    <p style="font-size:.85rem;color:var(--ink-soft);margin-bottom:12px">سعر مكتب التوصيلات يُحسب تلقائياً = سعر المنزل − 200 د.ج (بحد أدنى 200 د.ج).</p>
+    <div class="form-msg ok" id="shippingMsg"></div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>#</th><th>الولاية</th><th>سعر المنزل (د.ج)</th><th></th></tr></thead>
+        <tbody id="shippingBody"></tbody>
+      </table>
+    </div>
   </div>
 </div>
 <script>
@@ -872,6 +888,47 @@ async function setOrderStatus(id, status) {
   toast('تم تحديث حالة الطلبية ✓');
   refreshOrdersCount();
   openOrders();
+}
+
+async function openShipping() {
+  $('shippingMsg').textContent = '';
+  const data = await api('/api/admin/shipping');
+  const tbody = $('shippingBody');
+  tbody.innerHTML = '';
+  data.wilayas.forEach(w => {
+    const office = Math.max(w.shipping - 200, 200);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${String(w.code).padStart(2, '0')}</td>
+      <td>${esc(w.name)}<div class="order-items-mini">مكتب: ${office} د.ج</div></td>
+      <td><input type="number" min="0" max="100000" value="${w.shipping}" id="ship_${w.code}" style="width:120px"></td>
+      <td><button class="btn btn-sm" onclick="saveShipping(${w.code})">حفظ</button></td>`;
+    tbody.appendChild(tr);
+  });
+  openModal('shippingModal');
+}
+
+async function saveShipping(code) {
+  const msg = $('shippingMsg');
+  msg.className = 'form-msg ok';
+  msg.textContent = '';
+  const shipping = Number($('ship_' + code).value);
+  try {
+    const r = await api('/api/admin/shipping/' + code, { method: 'PUT', body: { shipping } });
+    // keep the in-page wilaya list (used at checkout) in sync
+    const w = META.wilayas.find(x => x.code === code);
+    if (w) w.shipping = r.shipping;
+    populateWilayas();
+    // refresh the office sub-label for this row without rebuilding the whole table
+    const office = Math.max(r.shipping - 200, 200);
+    const cell = $('ship_' + code).closest('tr').querySelector('.order-items-mini');
+    if (cell) cell.textContent = `مكتب: ${office} د.ج`;
+    $('ship_' + code).value = r.shipping;
+    msg.textContent = `✓ تم تحديث سعر التوصيل للولاية ${code} (المنزل: ${r.shipping} د.ج / المكتب: ${office} د.ج)`;
+  } catch (e) {
+    msg.className = 'form-msg err';
+    msg.textContent = e.message;
+  }
 }
 
 // ---------------- init ----------------

@@ -70,6 +70,11 @@ function mysqlImpl(url) {
       qty INT NOT NULL
     )`);
 
+    await pool.execute(`CREATE TABLE IF NOT EXISTS shipping_rates (
+      code INT PRIMARY KEY,
+      shipping INT NOT NULL
+    )`);
+
     // Migration: add delivery_type to pre-existing orders tables
     try {
       await pool.execute("ALTER TABLE orders ADD COLUMN delivery_type VARCHAR(10) NOT NULL DEFAULT 'home'");
@@ -190,6 +195,18 @@ function mysqlImpl(url) {
     },
     async updateOrderStatus(id, status) {
       await pool.execute('UPDATE orders SET status = ? WHERE id = ?', [status, id]);
+    },
+    async getShippingOverrides() {
+      const [rows] = await pool.execute('SELECT code, shipping FROM shipping_rates');
+      const out = {};
+      for (const r of rows) out[r.code] = r.shipping;
+      return out;
+    },
+    async setShippingRate(code, shipping) {
+      await pool.execute(
+        'INSERT INTO shipping_rates (code, shipping) VALUES (?, ?) ON DUPLICATE KEY UPDATE shipping = ?',
+        [code, shipping, shipping]
+      );
     }
   };
 }
@@ -204,7 +221,7 @@ function fileImpl() {
   const DATA_FILE = path.join(DATA_DIR, 'store.json');
   const sessions = new Map(); // sessions stay in memory (users just re-login)
 
-  let state = { users: [], products: [], orders: [], uid: 1, pid: 1, oid: 1 };
+  let state = { users: [], products: [], orders: [], shipping: {}, uid: 1, pid: 1, oid: 1 };
 
   function persist() {
     try {
@@ -228,6 +245,7 @@ function fileImpl() {
       } catch (e) {
         console.error('failed to load store file, starting fresh:', e.message);
       }
+      if (!state.shipping) state.shipping = {}; // older store files may lack this
       if (!state.users.some(u => u.email === ADMIN_EMAIL)) {
         state.users.push({ id: state.uid++, email: ADMIN_EMAIL, password_hash: bcrypt.hashSync(ADMIN_PW, 10), name: 'مسؤول المتجر', is_admin: 1 });
       }
@@ -275,7 +293,9 @@ function fileImpl() {
     async updateOrderStatus(id, status) {
       const t = state.orders.find(x => x.id === id);
       if (t) { t.status = status; persist(); }
-    }
+    },
+    async getShippingOverrides() { return { ...state.shipping }; },
+    async setShippingRate(code, shipping) { state.shipping[code] = shipping; persist(); }
   };
 }
 
