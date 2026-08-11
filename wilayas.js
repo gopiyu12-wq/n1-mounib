@@ -57,7 +57,19 @@ const WILAYAS = [
   { code: 55, name: "تقرت",             shipping: 900 },
   { code: 56, name: "جانت",             shipping: 1600 },
   { code: 57, name: "المغير",           shipping: 900 },
-  { code: 58, name: "المنيعة",          shipping: 1100 }
+  { code: 58, name: "المنيعة",          shipping: 1100 },
+  // مقاطعات توصيل إضافية (أسعار التوصيل موروثة من الولاية الأم)
+  { code: 59, name: "أفلو",             shipping: 700 },  // من الأغواط
+  { code: 60, name: "بريكة",            shipping: 700 },  // من باتنة
+  { code: 61, name: "القنطرة",          shipping: 900 },  // من بسكرة
+  { code: 62, name: "بئر العاتر",       shipping: 700 },  // من تبسة
+  { code: 63, name: "العريشة",          shipping: 600 },  // من تلمسان
+  { code: 64, name: "قصر الشلالة",      shipping: 600 },  // من تيارت
+  { code: 65, name: "عين وسارة",        shipping: 700 },  // من الجلفة
+  { code: 66, name: "مسعد",             shipping: 700 },  // من الجلفة
+  { code: 67, name: "قصر البخاري",      shipping: 450 },  // من المدية
+  { code: 68, name: "بوسعادة",          shipping: 700 },  // من المسيلة
+  { code: 69, name: "الأبيض سيدي الشيخ", shipping: 700 }  // من البيض
 ];
 
 module.exports = { WILAYAS };
