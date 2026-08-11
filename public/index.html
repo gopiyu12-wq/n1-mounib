@@ -172,6 +172,11 @@ input:focus,select:focus,textarea:focus{border-color:var(--brand)}
 .close-x:hover{background:var(--accent-soft);color:var(--accent)}
 .fgroup{margin-bottom:14px}
 .fgroup label{display:block;font-size:.85rem;font-weight:700;margin-bottom:6px;color:var(--ink-soft)}
+.delivery-opts{display:flex;gap:10px;flex-wrap:wrap}
+.delivery-opt{flex:1;min-width:150px;display:flex;align-items:center;gap:8px;margin:0!important;padding:11px 14px;
+  border:1.5px solid var(--line);border-radius:12px;background:var(--bg);cursor:pointer;font-size:.9rem;font-weight:700;color:var(--ink)!important;transition:border-color .2s,background .2s}
+.delivery-opt input{width:auto;accent-color:var(--brand)}
+.delivery-opt:has(input:checked){border-color:var(--brand);background:var(--accent-soft)}
 .form-msg{font-size:.85rem;font-weight:700;margin:10px 0;min-height:1.2em}
 .form-msg.err{color:#d33}
 .form-msg.ok{color:var(--brand-hi)}
@@ -271,9 +276,9 @@ footer .fphone{direction:ltr;display:inline-block;font-weight:800;color:var(--in
 
 <header class="hero">
   <h1>MB1_shoop<br><span>المتجر الجزائري الأول</span></h1>
-  <p>توصيل إلى كل ولايات الوطن الـ58</p>
+  <p>توصيل إلى كل ولايات الوطن الـ69</p>
   <div class="hero-meta">
-    <span class="pill">🚚 توصيل 58 ولاية</span>
+    <span class="pill">🚚 توصيل 69 ولاية</span>
     <span class="pill">💵 الدفع عند الاستلام</span>
     <span class="pill">📞 0779562200</span>
   </div>
@@ -340,8 +345,21 @@ footer .fphone{direction:ltr;display:inline-block;font-weight:800;color:var(--in
         <input type="tel" id="coPhone" placeholder="05 / 06 / 07 ..." dir="ltr" style="text-align:right" maxlength="10">
       </div>
       <div class="fgroup">
-        <label>الولاية * <small style="color:var(--ink-soft)">(58 ولاية)</small></label>
+        <label>الولاية * <small style="color:var(--ink-soft)">(69 ولاية)</small></label>
         <select id="coWilaya" onchange="renderCart()"></select>
+      </div>
+      <div class="fgroup">
+        <label>طريقة التوصيل *</label>
+        <div class="delivery-opts">
+          <label class="delivery-opt">
+            <input type="radio" name="deliveryType" value="home" checked onchange="renderCart()">
+            <span>🏠 توصيل إلى المنزل</span>
+          </label>
+          <label class="delivery-opt">
+            <input type="radio" name="deliveryType" value="office" onchange="renderCart()">
+            <span>🏢 مكتب التوصيلات (Stop Desk)</span>
+          </label>
+        </div>
       </div>
       <div class="fgroup">
         <label>العنوان / البلدية</label>
@@ -590,10 +608,23 @@ function renderCart() {
     box.appendChild(el);
   });
   const w = META.wilayas.find(x => x.code === Number($('coWilaya').value));
-  const ship = w ? w.shipping : 0;
+  const deliveryType = getDeliveryType();
+  const ship = w ? shippingFor(w, deliveryType) : 0;
   $('tItems').textContent = fmt(itemsTotal);
-  $('tShip').textContent = w ? fmt(ship) : '— اختر الولاية —';
+  $('tShip').textContent = w
+    ? `${fmt(ship)} (${deliveryType === 'office' ? 'مكتب التوصيلات' : 'المنزل'})`
+    : '— اختر الولاية —';
   $('tGrand').textContent = fmt(itemsTotal + ship);
+}
+
+// Office (stop-desk) delivery is 200 د.ج cheaper than home, with a 200 د.ج minimum
+function getDeliveryType() {
+  const el = document.querySelector('input[name="deliveryType"]:checked');
+  return el ? el.value : 'home';
+}
+function shippingFor(w, deliveryType) {
+  if (deliveryType === 'office') return Math.max(w.shipping - 200, 200);
+  return w.shipping;
 }
 
 async function checkout() {
@@ -609,11 +640,13 @@ async function checkout() {
         phone: $('coPhone').value.trim(),
         address: $('coAddress').value.trim(),
         wilayaCode: Number($('coWilaya').value),
+        deliveryType: getDeliveryType(),
         items: CART.map(i => ({ productId: i.productId, qty: i.qty }))
       }
     });
     // WhatsApp message with full order details → goes straight to the merchant's phone
     const w = META.wilayas.find(x => x.code === Number($('coWilaya').value));
+    const deliveryLabel = getDeliveryType() === 'office' ? 'مكتب التوصيلات (Stop Desk)' : 'توصيل إلى المنزل';
     const itemLines = CART.map(i => {
       const p = PRODUCTS.find(x => x.id === i.productId);
       return p ? `• ${p.name} ×${i.qty} = ${p.price * i.qty} د.ج` : '';
@@ -623,6 +656,7 @@ async function checkout() {
       `الاسم: ${$('coName').value.trim()}\n` +
       `الهاتف: ${$('coPhone').value.trim()}\n` +
       `الولاية: ${w ? w.name : ''}\n` +
+      `طريقة التوصيل: ${deliveryLabel}\n` +
       `العنوان: ${$('coAddress').value.trim() || '-'}\n` +
       `${itemLines}\n` +
       `التوصيل: ${data.shipping} د.ج\n` +
@@ -823,7 +857,7 @@ async function openOrders() {
       <td>#${o.id}</td>
       <td>${esc(o.customer_name)}<div class="order-items-mini">${o.user_email ? esc(o.user_email) : 'زائر'}</div></td>
       <td dir="ltr" style="text-align:right">${esc(o.phone)}</td>
-      <td>${esc(o.wilaya_name)}<div class="order-items-mini">${esc(o.address || '')}</div></td>
+      <td>${esc(o.wilaya_name)}<div class="order-items-mini">${o.delivery_type === 'office' ? '🏢 مكتب التوصيلات' : '🏠 المنزل'} — ${esc(o.address || '')}</div></td>
       <td><div class="order-items-mini" style="margin:0">${itemsTxt}</div></td>
       <td><b>${fmt(o.total)}</b><div class="order-items-mini">توصيل: ${o.shipping} د.ج</div></td>
       <td><span class="st-${esc(o.status)}">${STATUS_AR[o.status] || esc(o.status)}</span><br>

@@ -53,6 +53,7 @@ function mysqlImpl(url) {
       address VARCHAR(300) NOT NULL DEFAULT '',
       wilaya_code INT NOT NULL,
       wilaya_name VARCHAR(60) NOT NULL,
+      delivery_type VARCHAR(10) NOT NULL DEFAULT 'home',
       shipping INT NOT NULL,
       items_total INT NOT NULL,
       total INT NOT NULL,
@@ -68,6 +69,11 @@ function mysqlImpl(url) {
       price INT NOT NULL,
       qty INT NOT NULL
     )`);
+
+    // Migration: add delivery_type to pre-existing orders tables
+    try {
+      await pool.execute("ALTER TABLE orders ADD COLUMN delivery_type VARCHAR(10) NOT NULL DEFAULT 'home'");
+    } catch (e) { /* column already exists — ignore */ }
 
     // Seed admin account (server-side only, hashed)
     const [admins] = await pool.execute('SELECT id FROM users WHERE email = ?', [ADMIN_EMAIL]);
@@ -153,9 +159,9 @@ function mysqlImpl(url) {
       try {
         await conn.beginTransaction();
         const [r] = await conn.execute(
-          `INSERT INTO orders (customer_name, phone, address, wilaya_code, wilaya_name, shipping, items_total, total, status, user_email)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
-          [o.customer_name, o.phone, o.address, o.wilaya_code, o.wilaya_name, o.shipping, o.items_total, o.total, o.user_email || null]
+          `INSERT INTO orders (customer_name, phone, address, wilaya_code, wilaya_name, delivery_type, shipping, items_total, total, status, user_email)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+          [o.customer_name, o.phone, o.address, o.wilaya_code, o.wilaya_name, o.delivery_type || 'home', o.shipping, o.items_total, o.total, o.user_email || null]
         );
         const orderId = r.insertId;
         for (const it of items) {

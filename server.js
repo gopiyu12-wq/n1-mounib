@@ -136,11 +136,14 @@ app.get('/api/products', async (req, res) => {
 // --- Orders (public create, prices validated server-side) -----------------------
 app.post('/api/orders', async (req, res) => {
   try {
-    const { customerName, phone, address, wilayaCode, items } = req.body || {};
+    const { customerName, phone, address, wilayaCode, deliveryType, items } = req.body || {};
     if (!customerName || String(customerName).trim().length < 2) return res.status(400).json({ error: 'أدخل الاسم الكامل' });
     if (!phone || !/^0[567]\d{8}$/.test(String(phone).trim())) return res.status(400).json({ error: 'أدخل رقم هاتف جزائري صحيح (يبدأ بـ 05 أو 06 أو 07)' });
     const wilaya = WILAYAS.find(w => w.code === Number(wilayaCode));
     if (!wilaya) return res.status(400).json({ error: 'اختر الولاية' });
+    const delivery = deliveryType === 'office' ? 'office' : 'home';
+    // Office (stop-desk) delivery is 200 DZD cheaper than home, with a 200 DZD floor
+    const shipping = delivery === 'office' ? Math.max(wilaya.shipping - 200, 200) : wilaya.shipping;
     if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'السلة فارغة' });
     if (items.length > 50) return res.status(400).json({ error: 'عدد المنتجات كبير جداً' });
 
@@ -162,13 +165,14 @@ app.post('/api/orders', async (req, res) => {
       address: String(address || '').trim().slice(0, 300),
       wilaya_code: wilaya.code,
       wilaya_name: wilaya.name,
-      shipping: wilaya.shipping,
+      delivery_type: delivery,
+      shipping,
       items_total: itemsTotal,
-      total: itemsTotal + wilaya.shipping,
+      total: itemsTotal + shipping,
       user_email: u ? u.email : null
     }, orderItems);
 
-    res.json({ orderId, total: itemsTotal + wilaya.shipping, shipping: wilaya.shipping, phone: STORE_PHONE });
+    res.json({ orderId, total: itemsTotal + shipping, shipping, deliveryType: delivery, phone: STORE_PHONE });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'خطأ في الخادم' });
