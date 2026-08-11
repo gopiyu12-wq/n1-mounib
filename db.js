@@ -42,7 +42,7 @@ function mysqlImpl(url) {
       name VARCHAR(190) NOT NULL,
       category VARCHAR(60) NOT NULL,
       price INT NOT NULL,
-      image_url VARCHAR(500) DEFAULT NULL,
+      image_url LONGTEXT DEFAULT NULL,
       description VARCHAR(500) DEFAULT '',
       active BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

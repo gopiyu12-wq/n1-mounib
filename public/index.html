@@ -219,6 +219,11 @@ th{color:var(--ink-soft);font-size:.78rem}
 .st-delivered{color:var(--brand);font-weight:800}
 .st-cancelled{color:#d33;font-weight:800}
 .order-items-mini{font-size:.78rem;color:var(--ink-soft);margin-top:4px}
+.img-upload{display:flex;flex-direction:column;gap:9px}
+.img-preview{width:100%;max-height:200px;object-fit:contain;border-radius:12px;border:1px solid var(--line);background:var(--bg-soft)}
+.img-upload-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.img-pick-btn{display:inline-flex;align-items:center;cursor:pointer;margin:0}
+.img-hint{font-size:.8rem;color:var(--ink-soft);margin-top:2px}
 /* ---------- misc ---------- */
 .demo-note{
   background:var(--accent-soft);color:var(--accent);text-align:center;font-size:.82rem;font-weight:700;padding:8px 14px;
@@ -373,7 +378,20 @@ footer .fphone{direction:ltr;display:inline-block;font-weight:800;color:var(--in
     <div class="fgroup"><label>اسم المنتج *</label><input type="text" id="pfName"></div>
     <div class="fgroup"><label>الفئة *</label><select id="pfCategory"></select></div>
     <div class="fgroup"><label>السعر (د.ج) *</label><input type="number" id="pfPrice" min="1"></div>
-    <div class="fgroup"><label>رابط الصورة (اختياري، https)</label><input type="url" id="pfImage" dir="ltr" placeholder="https://..."></div>
+    <div class="fgroup">
+      <label>صورة المنتج (اختياري)</label>
+      <div class="img-upload">
+        <img id="pfPreview" class="img-preview" style="display:none" alt="">
+        <div class="img-upload-actions">
+          <label class="btn-ghost btn-sm img-pick-btn">📷 اختر صورة من جهازك
+            <input type="file" id="pfFile" accept="image/*" hidden onchange="handleImageFile(this)">
+          </label>
+          <button type="button" class="btn-danger" id="pfClearImg" style="display:none" onclick="clearProductImage()">إزالة الصورة</button>
+        </div>
+        <p class="img-hint">أو ألصق رابط صورة (https):</p>
+        <input type="url" id="pfImage" dir="ltr" placeholder="https://..." oninput="onImageUrlInput()">
+      </div>
+    </div>
     <div class="fgroup"><label>وصف قصير (اختياري)</label><input type="text" id="pfDesc"></div>
     <div class="form-msg err" id="pfMsg"></div>
     <button class="btn" style="width:100%" id="pfSubmit" onclick="submitProduct()">حفظ المنتج</button>
@@ -401,6 +419,7 @@ let USER = null;
 let CART = JSON.parse(localStorage.getItem('n1cart') || '[]'); // [{productId, qty}]
 let activeCategory = null;
 let editingProductId = null;
+let pfImageData = ''; // holds uploaded image as a compressed data URL
 let authMode = 'login';
 
 const $ = id => document.getElementById(id);
@@ -683,6 +702,8 @@ const STATUS_AR = { pending: 'قيد التأكيد', confirmed: 'مؤكدة', s
 
 function openProductForm(id) {
   editingProductId = id || null;
+  pfImageData = '';
+  $('pfFile').value = '';
   const sel = $('pfCategory');
   sel.innerHTML = META.categories.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
   $('pfMsg').textContent = '';
@@ -693,13 +714,63 @@ function openProductForm(id) {
     $('pfName').value = p.name;
     sel.value = p.category;
     $('pfPrice').value = p.price;
-    $('pfImage').value = p.image_url || '';
     $('pfDesc').value = p.description || '';
+    const img = p.image_url || '';
+    if (img.startsWith('data:')) { pfImageData = img; $('pfImage').value = ''; }
+    else { pfImageData = ''; $('pfImage').value = img; }
+    setImagePreview(img);
   } else {
     $('productModalTitle').textContent = 'إضافة منتج جديد';
     $('pfName').value = ''; $('pfPrice').value = ''; $('pfImage').value = ''; $('pfDesc').value = '';
+    setImagePreview('');
   }
   openModal('productModal');
+}
+
+function setImagePreview(src) {
+  const prev = $('pfPreview'), clr = $('pfClearImg');
+  if (src) { prev.src = src; prev.style.display = 'block'; clr.style.display = 'inline-block'; }
+  else { prev.removeAttribute('src'); prev.style.display = 'none'; clr.style.display = 'none'; }
+}
+
+function clearProductImage() {
+  pfImageData = ''; $('pfImage').value = ''; $('pfFile').value = '';
+  setImagePreview('');
+}
+
+function onImageUrlInput() {
+  // typing a URL clears any uploaded file
+  pfImageData = ''; $('pfFile').value = '';
+  setImagePreview($('pfImage').value.trim());
+}
+
+// Read an image file, downscale it in-browser, store as a compact JPEG data URL
+function handleImageFile(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  $('pfMsg').textContent = '';
+  if (!/^image\//.test(file.type)) { $('pfMsg').textContent = 'الملف المختار ليس صورة'; return; }
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = () => {
+      const MAX = 900;
+      let { width, height } = img;
+      if (width > MAX || height > MAX) {
+        const r = Math.min(MAX / width, MAX / height);
+        width = Math.round(width * r); height = Math.round(height * r);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      pfImageData = canvas.toDataURL('image/jpeg', 0.82);
+      $('pfImage').value = ''; // uploaded file takes precedence over URL
+      setImagePreview(pfImageData);
+    };
+    img.onerror = () => { $('pfMsg').textContent = 'تعذّرت قراءة الصورة'; };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
 }
 
 async function submitProduct() {
@@ -709,7 +780,7 @@ async function submitProduct() {
     name: $('pfName').value.trim(),
     category: $('pfCategory').value,
     price: Number($('pfPrice').value),
-    imageUrl: $('pfImage').value.trim(),
+    imageUrl: pfImageData || $('pfImage').value.trim(),
     description: $('pfDesc').value.trim()
   };
   try {

@@ -10,7 +10,7 @@ const PORT = process.env.PORT || 3000;
 const STORE_PHONE = '0779562200';
 const CATEGORIES = ['ملابس داخلية', 'سراويل', 'تيشرت', 'جوارب', 'قبعات', 'أحذية'];
 
-app.use(express.json({ limit: '200kb' }));
+app.use(express.json({ limit: '6mb' })); // large enough for an embedded product image (data URL)
 app.use(express.static(path.join(__dirname, 'public')));
 
 // --- Session helpers (token in HttpOnly cookie) ------------------------------
@@ -160,13 +160,24 @@ function validateProductBody(body) {
   const name = String(body.name || '').trim();
   const category = String(body.category || '').trim();
   const price = Math.round(Number(body.price));
-  const image_url = String(body.imageUrl || '').trim().slice(0, 500);
+  const image_url = String(body.imageUrl || '').trim();
   const description = String(body.description || '').trim().slice(0, 500);
   if (name.length < 2) return { error: 'أدخل اسم المنتج' };
   if (!CATEGORIES.includes(category)) return { error: 'فئة غير صالحة' };
   if (!Number.isFinite(price) || price <= 0 || price > 10000000) return { error: 'أدخل سعراً صحيحاً' };
-  if (image_url && !/^https:\/\//.test(image_url)) return { error: 'رابط الصورة يجب أن يبدأ بـ https://' };
-  return { value: { name: name.slice(0, 190), category, price, image_url: image_url || null, description } };
+  // image can be either an https URL or an uploaded image embedded as a data URL
+  let img = null;
+  if (image_url) {
+    if (/^https:\/\//.test(image_url)) {
+      img = image_url.slice(0, 500);
+    } else if (/^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(image_url)) {
+      if (image_url.length > 4_500_000) return { error: 'حجم الصورة كبير جداً — اختر صورة أصغر' };
+      img = image_url;
+    } else {
+      return { error: 'صورة غير صالحة — ارفع ملف صورة أو أدخل رابطاً يبدأ بـ https://' };
+    }
+  }
+  return { value: { name: name.slice(0, 190), category, price, image_url: img, description } };
 }
 
 app.post('/api/admin/products', requireAdmin, async (req, res) => {
