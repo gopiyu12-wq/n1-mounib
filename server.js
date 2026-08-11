@@ -8,7 +8,7 @@ const { WILAYAS } = require('./wilayas');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const STORE_PHONE = '0779562200';
-const CATEGORIES = ['ملابس داخلية', 'سراويل', 'تيشرت', 'جوارب', 'قبعات', 'أحذية'];
+const CATEGORIES = ['سراويل', 'تيشرت', 'جوارب', 'قبعات', 'أحذية'];
 
 app.use(express.json({ limit: '6mb' })); // large enough for an embedded product image (data URL)
 app.use(express.static(path.join(__dirname, 'public')));
@@ -237,6 +237,6 @@ app.put('/api/admin/orders/:id/status', requireAdmin, async (req, res) => {
 (async () => {
   await db.init();
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`N1|Mounib store running on 0.0.0.0:${PORT} (${process.env.DATABASE_URL ? 'MySQL' : 'file-storage'} mode)`);
+    console.log(`MB1_shoop store running on 0.0.0.0:${PORT} (${process.env.DATABASE_URL ? 'MySQL' : 'file-storage'} mode)`);
   });
 })();

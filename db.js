@@ -5,15 +5,14 @@ const ADMIN_EMAIL = 'fopilu12@gmail.com';
 const ADMIN_PW = 'Qusar2006';
 
 const SEED_PRODUCTS = [
-  { name: 'تيشرت قطني N1 كلاسيك', category: 'تيشرت', price: 2500, description: 'قطن 100% خامة ثقيلة' },
+  { name: 'تيشرت قطني MB1 كلاسيك', category: 'تيشرت', price: 2500, description: 'قطن 100% خامة ثقيلة' },
   { name: 'تيشرت أوفرسايز أسود', category: 'تيشرت', price: 2900, description: 'قصّة عصرية واسعة' },
   { name: 'سروال جينز سليم', category: 'سراويل', price: 4500, description: 'جينز مرن مريح' },
   { name: 'سروال كارغو رمادي', category: 'سراويل', price: 5200, description: 'جيوب جانبية عملية' },
-  { name: 'حذاء رياضي N1 رانر', category: 'أحذية', price: 6800, description: 'نعل خفيف مضاد للانزلاق' },
+  { name: 'حذاء رياضي MB1 رانر', category: 'أحذية', price: 6800, description: 'نعل خفيف مضاد للانزلاق' },
   { name: 'حذاء كاجوال جلد', category: 'أحذية', price: 7900, description: 'جلد طبيعي صناعة محلية' },
   { name: 'طقم جوارب رياضية (3 أزواج)', category: 'جوارب', price: 900, description: 'قطن ممتص للعرق' },
-  { name: 'قبعة N1 سناباك', category: 'قبعات', price: 1500, description: 'تطريز شعار المتجر' },
-  { name: 'طقم ملابس داخلية قطنية', category: 'ملابس داخلية', price: 1800, description: 'قطن ناعم عالي الجودة' }
+  { name: 'قبعة MB1 سناباك', category: 'قبعات', price: 1500, description: 'تطريز شعار المتجر' },
 ];
 
 // ---------------------------------------------------------------------------
