@@ -23,17 +23,43 @@ function parseCookies(req) {
   return out;
 }
 
+// --- Stateless signed tokens (survive server restarts / cold starts) ----------
+// A token is  base64url(payload).base64url(HMAC-SHA256(payload))
+// The signing secret is stable (env var), so tokens stay valid across restarts.
+const SESSION_TTL = 30 * 24 * 3600; // 30 days
+const SESSION_SECRET = process.env.SESSION_SECRET || 'n1-mounib-fallback-secret-change-me';
+
+const b64url = buf => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const b64urlDecode = str => Buffer.from(str.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+
+function signToken(userId) {
+  const payload = b64url(JSON.stringify({ u: userId, e: Math.floor(Date.now() / 1000) + SESSION_TTL }));
+  const sig = b64url(crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest());
+  return payload + '.' + sig;
+}
+
+function verifyToken(token) {
+  if (!token || typeof token !== 'string' || token.indexOf('.') < 0) return null;
+  const [payload, sig] = token.split('.');
+  if (!payload || !sig) return null;
+  const expected = b64url(crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest());
+  const a = Buffer.from(sig), b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  let data;
+  try { data = JSON.parse(b64urlDecode(payload).toString('utf8')); } catch { return null; }
+  if (!data || !data.u || !data.e || data.e < Math.floor(Date.now() / 1000)) return null;
+  return data.u;
+}
+
 async function currentUser(req) {
-  const token = parseCookies(req).session;
-  if (!token || !/^[a-f0-9]{64}$/.test(token)) return null;
-  const s = await db.getSession(token);
-  if (!s) return null;
-  const u = await db.getUserById(s.user_id);
+  const uid = verifyToken(parseCookies(req).session);
+  if (!uid) return null;
+  const u = await db.getUserById(uid);
   return u || null;
 }
 
 function setSessionCookie(res, token) {
-  res.setHeader('Set-Cookie', `session=${token}; HttpOnly; Path=/; Max-Age=${7 * 24 * 3600}; SameSite=Lax`);
+  res.setHeader('Set-Cookie', `session=${token}; HttpOnly; Path=/; Max-Age=${SESSION_TTL}; SameSite=Lax`);
 }
 
 function clearSessionCookie(res) {
@@ -57,9 +83,7 @@ app.post('/api/auth/register', async (req, res) => {
     if (existing) return res.status(409).json({ error: 'هذا البريد مسجل مسبقاً — جرّب تسجيل الدخول' });
     const hash = bcrypt.hashSync(password, 10);
     const id = await db.createUser(email.toLowerCase(), hash, (name || '').slice(0, 100));
-    const token = crypto.randomBytes(32).toString('hex');
-    await db.createSession(token, id, new Date(Date.now() + 7 * 24 * 3600 * 1000));
-    setSessionCookie(res, token);
+    setSessionCookie(res, signToken(id));
     res.json({ user: { email: email.toLowerCase(), name: name || '', isAdmin: false } });
   } catch (e) {
     console.error(e);
@@ -75,9 +99,7 @@ app.post('/api/auth/login', async (req, res) => {
     if (!u || !bcrypt.compareSync(password, u.password_hash)) {
       return res.status(401).json({ error: 'البريد أو كلمة السر غير صحيحة' });
     }
-    const token = crypto.randomBytes(32).toString('hex');
-    await db.createSession(token, u.id, new Date(Date.now() + 7 * 24 * 3600 * 1000));
-    setSessionCookie(res, token);
+    setSessionCookie(res, signToken(u.id));
     res.json({ user: { email: u.email, name: u.name, isAdmin: !!u.is_admin } });
   } catch (e) {
     console.error(e);
@@ -86,8 +108,6 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.post('/api/auth/logout', async (req, res) => {
-  const token = parseCookies(req).session;
-  if (token) await db.deleteSession(token).catch(() => {});
   clearSessionCookie(res);
   res.json({ ok: true });
 });
