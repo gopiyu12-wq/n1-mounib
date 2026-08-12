@@ -251,6 +251,29 @@ footer .fphone{direction:ltr;display:inline-block;font-weight:800;color:var(--in
   opacity:0;transition:all .35s cubic-bezier(.2,.9,.3,1);pointer-events:none;box-shadow:0 10px 30px rgba(0,0,0,.3);
 }
 .toast.show{opacity:1;transform:translateX(50%) translateY(0)}
+/* ---------- chat assistant ---------- */
+.chat-fab{position:fixed;bottom:22px;left:22px;z-index:400;width:60px;height:60px;border-radius:50%;
+  background:linear-gradient(135deg,var(--brand),var(--accent));color:#fff;font-size:1.7rem;border:none;cursor:pointer;
+  box-shadow:0 8px 24px rgba(124,58,237,.4);display:flex;align-items:center;justify-content:center;transition:transform .2s}
+.chat-fab:hover{transform:scale(1.08)}
+.chat-panel{position:fixed;bottom:92px;left:22px;z-index:400;width:340px;max-width:calc(100vw - 44px);height:460px;max-height:calc(100vh - 130px);
+  background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:0 18px 50px rgba(0,0,0,.28);
+  display:none;flex-direction:column;overflow:hidden}
+.chat-panel.open{display:flex;animation:rise .25s ease}
+.chat-head{background:linear-gradient(135deg,var(--brand),var(--accent));color:#fff;padding:13px 16px;display:flex;align-items:center;justify-content:space-between}
+.chat-head b{font-size:1rem}
+.chat-head small{opacity:.9;font-size:.72rem;display:block}
+.chat-head .close-x{color:#fff}
+.chat-body{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;background:var(--bg-soft)}
+.chat-msg{max-width:82%;padding:10px 13px;border-radius:14px;font-size:.9rem;line-height:1.55;white-space:pre-wrap;word-wrap:break-word}
+.chat-msg.bot{align-self:flex-start;background:var(--card);border:1px solid var(--line);border-bottom-right-radius:4px}
+.chat-msg.user{align-self:flex-end;background:var(--brand);color:#fff;border-bottom-left-radius:4px}
+.chat-quick{display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px;border-top:1px solid var(--line);background:var(--card)}
+.chat-quick button{font-size:.75rem;padding:6px 11px;border-radius:99px;background:var(--accent-soft);color:var(--brand);border:1px solid var(--line)}
+.chat-input{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line);background:var(--card)}
+.chat-input input{flex:1;padding:10px 12px;border-radius:12px}
+.chat-input button{padding:10px 16px;background:var(--brand);color:#fff;border-radius:12px}
+.chat-typing{align-self:flex-start;color:var(--ink-soft);font-size:.8rem;padding:4px 6px}
 @media(max-width:640px){
   .hero{padding:52px 16px 60px}
   .topbar{padding:10px 12px}
@@ -450,6 +473,26 @@ footer .fphone{direction:ltr;display:inline-block;font-weight:800;color:var(--in
         <tbody id="shippingBody"></tbody>
       </table>
     </div>
+  </div>
+</div>
+
+<!-- Chat assistant -->
+<button class="chat-fab" id="chatFab" onclick="toggleChat()" title="مساعد MB1_shoop" aria-label="افتح المحادثة">💬</button>
+<div class="chat-panel" id="chatPanel">
+  <div class="chat-head">
+    <div><b>مساعد MB1_shoop</b><small>نرد عليك تلقائياً عند غياب المسؤول</small></div>
+    <button class="close-x" onclick="toggleChat()">✕</button>
+  </div>
+  <div class="chat-body" id="chatBody"></div>
+  <div class="chat-quick" id="chatQuick">
+    <button onclick="quickAsk('كيف أطلب؟')">كيف أطلب؟</button>
+    <button onclick="quickAsk('ما هي طريقة الدفع؟')">طريقة الدفع</button>
+    <button onclick="quickAsk('كم سعر التوصيل؟')">سعر التوصيل</button>
+    <button onclick="quickAsk('ما هي الأقسام المتوفرة؟')">الأقسام</button>
+  </div>
+  <div class="chat-input">
+    <input type="text" id="chatText" placeholder="اكتب سؤالك هنا..." onkeydown="if(event.key==='Enter')sendChat()">
+    <button onclick="sendChat()">إرسال</button>
   </div>
 </div>
 <script>
@@ -983,6 +1026,45 @@ async function saveShipping(code) {
   } catch (e) {
     msg.className = 'form-msg err';
     msg.textContent = e.message;
+  }
+}
+
+// ---------------- chat assistant ----------------
+let chatStarted = false;
+function toggleChat() {
+  const panel = $('chatPanel');
+  const open = panel.classList.toggle('open');
+  $('chatFab').textContent = open ? '✕' : '💬';
+  if (open && !chatStarted) {
+    chatStarted = true;
+    addChatMsg('bot', 'مرحباً بك في MB1_shoop 👋 أنا المساعد الآلي. اسألني عن الأسعار، التوصيل، طريقة الطلب أو المنتجات.');
+  }
+  if (open) setTimeout(() => $('chatText').focus(), 100);
+}
+function addChatMsg(who, text) {
+  const el = document.createElement('div');
+  el.className = 'chat-msg ' + who;
+  el.textContent = text;
+  $('chatBody').appendChild(el);
+  $('chatBody').scrollTop = $('chatBody').scrollHeight;
+  return el;
+}
+function quickAsk(q) { $('chatText').value = q; sendChat(); }
+async function sendChat() {
+  const input = $('chatText');
+  const message = input.value.trim();
+  if (!message) return;
+  addChatMsg('user', message);
+  input.value = '';
+  const typing = addChatMsg('bot', '...');
+  typing.className = 'chat-typing';
+  try {
+    const data = await api('/api/chat', { method: 'POST', body: { message } });
+    typing.remove();
+    addChatMsg('bot', data.reply || 'حدث خطأ، حاول مرة أخرى.');
+  } catch (e) {
+    typing.remove();
+    addChatMsg('bot', `تعذّر الاتصال. يمكنك التواصل مع المسؤول على ${META.phone} (واتساب متاح).`);
   }
 }
 

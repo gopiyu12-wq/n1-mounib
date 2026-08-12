@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const path = require('path');
 const db = require('./db');
 const { WILAYAS } = require('./wilayas');
+const chatbot = require('./chatbot');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -143,6 +144,19 @@ app.get('/api/products', async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'خطأ في الخادم' });
+  }
+});
+
+// --- Chat assistant (self-contained; no external service) -----------------------
+app.post('/api/chat', async (req, res) => {
+  try {
+    const message = String((req.body || {}).message || '').slice(0, 500);
+    const [products, wilayas] = await Promise.all([db.listProducts(null), effectiveWilayas()]);
+    const answer = chatbot.reply(message, { products, categories: CATEGORIES, wilayas, phone: STORE_PHONE });
+    res.json({ reply: answer.text });
+  } catch (e) {
+    console.error(e);
+    res.json({ reply: `يمكنك التواصل مع المسؤول مباشرةً على ${STORE_PHONE} (واتساب متاح).` });
   }
 });
 
