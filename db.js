@@ -20,6 +20,22 @@ const SEED_PRODUCTS = [
 // ---------------------------------------------------------------------------
 // MySQL implementation
 // ---------------------------------------------------------------------------
+// Variants (colors / sizes) are stored as a JSON array string in a TEXT column.
+// These helpers keep the API surface as plain arrays regardless of storage.
+function parseVariants(v) {
+  if (Array.isArray(v)) return v;
+  if (!v) return [];
+  try { const a = JSON.parse(v); return Array.isArray(a) ? a : []; } catch { return []; }
+}
+function serializeVariants(v) {
+  const arr = Array.isArray(v) ? v.map(x => String(x)).filter(Boolean) : [];
+  return arr.length ? JSON.stringify(arr) : null;
+}
+function withVariants(p) {
+  if (!p) return p;
+  return { ...p, colors: parseVariants(p.colors), sizes: parseVariants(p.sizes) };
+}
+
 function mysqlImpl(url) {
   const mysql = require('mysql2/promise');
   const pool = mysql.createPool(url);
@@ -45,6 +61,8 @@ function mysqlImpl(url) {
       price INT NOT NULL,
       image_url LONGTEXT DEFAULT NULL,
       description VARCHAR(500) DEFAULT '',
+      colors TEXT DEFAULT NULL,
+      sizes TEXT DEFAULT NULL,
       active BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`);
@@ -69,7 +87,9 @@ function mysqlImpl(url) {
       product_id INT NOT NULL,
       product_name VARCHAR(190) NOT NULL,
       price INT NOT NULL,
-      qty INT NOT NULL
+      qty INT NOT NULL,
+      color VARCHAR(60) DEFAULT NULL,
+      size VARCHAR(60) DEFAULT NULL
     )`);
 
     await pool.execute(`CREATE TABLE IF NOT EXISTS shipping_rates (
@@ -85,6 +105,12 @@ function mysqlImpl(url) {
     try {
       await pool.execute("ALTER TABLE orders ADD COLUMN delivery_type VARCHAR(10) NOT NULL DEFAULT 'home'");
     } catch (e) { /* column already exists — ignore */ }
+
+    // Migration: add color/size variants to pre-existing product & order_items tables
+    try { await pool.execute("ALTER TABLE products ADD COLUMN colors TEXT DEFAULT NULL"); } catch (e) { /* exists */ }
+    try { await pool.execute("ALTER TABLE products ADD COLUMN sizes TEXT DEFAULT NULL"); } catch (e) { /* exists */ }
+    try { await pool.execute("ALTER TABLE order_items ADD COLUMN color VARCHAR(60) DEFAULT NULL"); } catch (e) { /* exists */ }
+    try { await pool.execute("ALTER TABLE order_items ADD COLUMN size VARCHAR(60) DEFAULT NULL"); } catch (e) { /* exists */ }
 
     // Seed admin account (server-side only, hashed)
     const [admins] = await pool.execute('SELECT id FROM users WHERE email = ?', [ADMIN_EMAIL]);
@@ -149,26 +175,26 @@ function mysqlImpl(url) {
       if (category) {
         const [rows] = await pool.execute(
           'SELECT * FROM products WHERE active = TRUE AND category = ? ORDER BY id DESC', [category]);
-        return rows;
+        return rows.map(withVariants);
       }
       const [rows] = await pool.execute('SELECT * FROM products WHERE active = TRUE ORDER BY id DESC');
-      return rows;
+      return rows.map(withVariants);
     },
     async getProduct(id) {
       const [rows] = await pool.execute('SELECT * FROM products WHERE id = ? AND active = TRUE', [id]);
-      return rows[0] || null;
+      return rows[0] ? withVariants(rows[0]) : null;
     },
     async createProduct(p) {
       const [r] = await pool.execute(
-        'INSERT INTO products (name, category, price, image_url, description) VALUES (?, ?, ?, ?, ?)',
-        [p.name, p.category, p.price, p.image_url || null, p.description || '']
+        'INSERT INTO products (name, category, price, image_url, description, colors, sizes) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [p.name, p.category, p.price, p.image_url || null, p.description || '', serializeVariants(p.colors), serializeVariants(p.sizes)]
       );
       return r.insertId;
     },
     async updateProduct(id, p) {
       await pool.execute(
-        'UPDATE products SET name = ?, category = ?, price = ?, image_url = ?, description = ? WHERE id = ?',
-        [p.name, p.category, p.price, p.image_url || null, p.description || '', id]
+        'UPDATE products SET name = ?, category = ?, price = ?, image_url = ?, description = ?, colors = ?, sizes = ? WHERE id = ?',
+        [p.name, p.category, p.price, p.image_url || null, p.description || '', serializeVariants(p.colors), serializeVariants(p.sizes), id]
       );
     },
     async deleteProduct(id) {
@@ -186,8 +212,8 @@ function mysqlImpl(url) {
         const orderId = r.insertId;
         for (const it of items) {
           await conn.execute(
-            'INSERT INTO order_items (order_id, product_id, product_name, price, qty) VALUES (?, ?, ?, ?, ?)',
-            [orderId, it.product_id, it.product_name, it.price, it.qty]
+            'INSERT INTO order_items (order_id, product_id, product_name, price, qty, color, size) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [orderId, it.product_id, it.product_name, it.price, it.qty, it.color || null, it.size || null]
           );
         }
         await conn.commit();
@@ -301,16 +327,20 @@ function fileImpl() {
     },
     async deleteSession(token) { sessions.delete(token); },
     async listProducts(category) {
-      return state.products.filter(p => p.active && (!category || p.category === category)).slice().reverse();
+      return state.products.filter(p => p.active && (!category || p.category === category)).slice().reverse()
+        .map(p => ({ ...p, colors: parseVariants(p.colors), sizes: parseVariants(p.sizes) }));
     },
-    async getProduct(id) { return state.products.find(p => p.id === id && p.active) || null; },
+    async getProduct(id) {
+      const p = state.products.find(p => p.id === id && p.active);
+      return p ? { ...p, colors: parseVariants(p.colors), sizes: parseVariants(p.sizes) } : null;
+    },
     async createProduct(p) {
-      const np = { id: state.pid++, name: p.name, category: p.category, price: p.price, image_url: p.image_url || null, description: p.description || '', active: 1, created_at: new Date() };
+      const np = { id: state.pid++, name: p.name, category: p.category, price: p.price, image_url: p.image_url || null, description: p.description || '', colors: parseVariants(p.colors), sizes: parseVariants(p.sizes), active: 1, created_at: new Date() };
       state.products.push(np); persist(); return np.id;
     },
     async updateProduct(id, p) {
       const t = state.products.find(x => x.id === id);
-      if (t) { Object.assign(t, { name: p.name, category: p.category, price: p.price, image_url: p.image_url || null, description: p.description || '' }); persist(); }
+      if (t) { Object.assign(t, { name: p.name, category: p.category, price: p.price, image_url: p.image_url || null, description: p.description || '', colors: parseVariants(p.colors), sizes: parseVariants(p.sizes) }); persist(); }
     },
     async deleteProduct(id) {
       const t = state.products.find(x => x.id === id);

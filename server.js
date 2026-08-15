@@ -181,7 +181,19 @@ app.post('/api/orders', async (req, res) => {
       const p = await db.getProduct(Number(it.productId));
       if (!p) return res.status(400).json({ error: 'منتج غير موجود في السلة' });
       const qty = Math.min(Math.max(parseInt(it.qty, 10) || 1, 1), 20);
-      orderItems.push({ product_id: p.id, product_name: p.name, price: p.price, qty });
+      // Validate variant choices against what the product actually offers.
+      const colors = Array.isArray(p.colors) ? p.colors : [];
+      const sizes = Array.isArray(p.sizes) ? p.sizes : [];
+      let color = null, size = null;
+      if (colors.length) {
+        color = String(it.color || '').trim();
+        if (!colors.includes(color)) return res.status(400).json({ error: `اختر اللون للمنتج «${p.name}»` });
+      }
+      if (sizes.length) {
+        size = String(it.size || '').trim();
+        if (!sizes.includes(size)) return res.status(400).json({ error: `اختر المقاس للمنتج «${p.name}»` });
+      }
+      orderItems.push({ product_id: p.id, product_name: p.name, price: p.price, qty, color, size });
       itemsTotal += p.price * qty;
     }
 
@@ -207,12 +219,28 @@ app.post('/api/orders', async (req, res) => {
 });
 
 // --- Admin: products -------------------------------------------------------------
+// Normalize an incoming variant list (colors/sizes): trim, drop blanks,
+// de-duplicate, cap each label length and the number of options.
+function cleanVariants(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const raw of list) {
+    const v = String(raw || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+    if (v && !seen.has(v)) { seen.add(v); out.push(v); }
+    if (out.length >= 30) break;
+  }
+  return out;
+}
+
 function validateProductBody(body) {
   const name = String(body.name || '').trim();
   const category = String(body.category || '').trim();
   const price = Math.round(Number(body.price));
   const image_url = String(body.imageUrl || '').trim();
   const description = String(body.description || '').trim().slice(0, 500);
+  const colors = cleanVariants(body.colors);
+  const sizes = cleanVariants(body.sizes);
   if (name.length < 2) return { error: 'أدخل اسم المنتج' };
   if (!CATEGORIES.includes(category)) return { error: 'فئة غير صالحة' };
   if (!Number.isFinite(price) || price <= 0 || price > 10000000) return { error: 'أدخل سعراً صحيحاً' };
@@ -228,7 +256,7 @@ function validateProductBody(body) {
       return { error: 'صورة غير صالحة — ارفع ملف صورة أو أدخل رابطاً يبدأ بـ https://' };
     }
   }
-  return { value: { name: name.slice(0, 190), category, price, image_url: img, description } };
+  return { value: { name: name.slice(0, 190), category, price, image_url: img, description, colors, sizes } };
 }
 
 app.post('/api/admin/products', requireAdmin, async (req, res) => {

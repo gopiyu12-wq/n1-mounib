@@ -236,6 +236,26 @@ th{color:var(--ink-soft);font-size:.78rem}
 .img-upload-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .img-pick-btn{display:inline-flex;align-items:center;cursor:pointer;margin:0}
 .img-hint{font-size:.8rem;color:var(--ink-soft);margin-top:2px}
+/* variant (color/size) tag editor + input row */
+.tag-list{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:9px}
+.tag-list:empty{display:none}
+.var-tag{display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft);color:var(--brand);
+  border:1px solid var(--line);border-radius:99px;padding:5px 6px 5px 12px;font-size:.85rem;font-weight:700}
+.var-tag button{background:rgba(220,38,38,.14);color:#dc2626;width:20px;height:20px;border-radius:50%;font-size:.75rem;line-height:1;padding:0}
+.var-tag button:hover{background:#dc2626;color:#fff}
+.tag-input-row{display:flex;gap:8px}
+.tag-input-row input{flex:1}
+.tag-add-btn{flex:0 0 auto;width:44px;background:var(--brand);color:#fff;font-size:1.3rem;line-height:1;border-radius:10px}
+.tag-add-btn:hover{background:var(--brand-hi)}
+/* customer variant chips (color/size selection) */
+.var-pick-group{margin-bottom:16px}
+.var-pick-group .lbl{font-size:.9rem;font-weight:800;margin-bottom:8px;color:var(--ink)}
+.var-chips{display:flex;flex-wrap:wrap;gap:8px}
+.var-chip{padding:8px 16px;border-radius:99px;background:var(--bg);border:1.5px solid var(--line);
+  color:var(--ink);font-size:.88rem;font-weight:700;transition:border-color .15s,background .15s}
+.var-chip:hover{border-color:var(--brand)}
+.var-chip.sel{background:var(--brand);border-color:var(--brand);color:#fff}
+.card .var-hint{font-size:.72rem;color:var(--ink-soft);font-weight:700}
 /* ---------- misc ---------- */
 .demo-note{
   background:var(--accent-soft);color:var(--accent);text-align:center;font-size:.82rem;font-weight:700;padding:8px 14px;
@@ -420,6 +440,23 @@ footer .fphone{direction:ltr;display:inline-block;font-weight:800;color:var(--in
     <button class="btn" style="width:100%" onclick="closeModal('confirmModal')">حسناً، شكراً</button>
   </div>
 </div>
+<!-- Customer: variant (color/size) picker modal -->
+<div class="modal" id="variantModal">
+  <div class="modal-box">
+    <div class="modal-head"><h3 id="variantTitle">اختر الخيارات</h3><button class="close-x" onclick="closeModal('variantModal')">✕</button></div>
+    <div id="variantColors" class="var-pick-group" style="display:none">
+      <div class="lbl">🎨 اللون</div>
+      <div class="var-chips" id="variantColorChips"></div>
+    </div>
+    <div id="variantSizes" class="var-pick-group" style="display:none">
+      <div class="lbl">📏 المقاس</div>
+      <div class="var-chips" id="variantSizeChips"></div>
+    </div>
+    <div class="form-msg err" id="variantMsg"></div>
+    <button class="btn btn-accent" style="width:100%;margin-top:6px" onclick="confirmVariant()">🛒 أضف إلى السلة</button>
+  </div>
+</div>
+
 <!-- Admin: product form modal -->
 <div class="modal" id="productModal">
   <div class="modal-box">
@@ -442,6 +479,22 @@ footer .fphone{direction:ltr;display:inline-block;font-weight:800;color:var(--in
       </div>
     </div>
     <div class="fgroup"><label>وصف قصير (اختياري)</label><input type="text" id="pfDesc"></div>
+    <div class="fgroup">
+      <label>الألوان المتوفرة (اختياري)</label>
+      <div class="tag-list" id="pfColorsList"></div>
+      <div class="tag-input-row">
+        <input type="text" id="pfColorInput" placeholder="مثال: أسود، أبيض، أحمر..." onkeydown="if(event.key==='Enter'){event.preventDefault();addVariant('colors')}">
+        <button type="button" class="tag-add-btn" title="إضافة لون" onclick="addVariant('colors')">＋</button>
+      </div>
+    </div>
+    <div class="fgroup">
+      <label>المقاسات المتوفرة (اختياري)</label>
+      <div class="tag-list" id="pfSizesList"></div>
+      <div class="tag-input-row">
+        <input type="text" id="pfSizeInput" placeholder="مثال: S، M، L، 40، 41..." onkeydown="if(event.key==='Enter'){event.preventDefault();addVariant('sizes')}">
+        <button type="button" class="tag-add-btn" title="إضافة مقاس" onclick="addVariant('sizes')">＋</button>
+      </div>
+    </div>
     <div class="form-msg err" id="pfMsg"></div>
     <button class="btn" style="width:100%" id="pfSubmit" onclick="submitProduct()">حفظ المنتج</button>
   </div>
@@ -500,10 +553,13 @@ footer .fphone{direction:ltr;display:inline-block;font-weight:800;color:var(--in
 let META = { wilayas: [], categories: [], phone: '0779562200', demo: false };
 let PRODUCTS = [];
 let USER = null;
-let CART = JSON.parse(localStorage.getItem('n1cart') || '[]'); // [{productId, qty}]
+let CART = JSON.parse(localStorage.getItem('n1cart') || '[]'); // [{productId, qty, color, size}]
 let activeCategory = null;
 let editingProductId = null;
 let pfImageData = ''; // holds uploaded image as a compressed data URL
+let pfColors = [];    // admin: variant tags being edited
+let pfSizes = [];
+let variantPick = null; // customer: { product, color, size } while choosing variants
 let authMode = 'login';
 
 const $ = id => document.getElementById(id);
@@ -633,14 +689,21 @@ function renderProducts() {
     const thumb = p.image_url
       ? `<img src="${esc(p.image_url)}" alt="${esc(p.name)}" loading="lazy" onerror="this.outerHTML='<span>${CAT_EMOJI[p.category] || '🛍️'}</span>'">`
       : `<span>${CAT_EMOJI[p.category] || '🛍️'}</span>`;
+    const hasColors = Array.isArray(p.colors) && p.colors.length;
+    const hasSizes = Array.isArray(p.sizes) && p.sizes.length;
+    const variantHint = (hasColors || hasSizes)
+      ? `<span class="var-hint">${[hasColors ? '🎨 ' + p.colors.length + ' ألوان' : '', hasSizes ? '📏 ' + p.sizes.length + ' مقاسات' : ''].filter(Boolean).join(' · ')}</span>`
+      : '';
+    const addLabel = (hasColors || hasSizes) ? '🛒 اختر وأضف' : '🛒 إضافة للسلة';
     card.innerHTML = `
       <div class="thumb">${thumb}<span class="cat-label">${esc(p.category)}</span></div>
       <div class="body">
         <h3>${esc(p.name)}</h3>
         <p class="desc">${esc(p.description || '')}</p>
+        ${variantHint}
         <div class="price-row"><span class="price">${Number(p.price).toLocaleString('ar-DZ')} <small>د.ج</small></span></div>
         <div class="actions">
-          <button class="btn btn-sm" onclick="addToCart(${p.id})">🛒 إضافة للسلة</button>
+          <button class="btn btn-sm" onclick="addToCart(${p.id})">${addLabel}</button>
           ${USER && USER.isAdmin ? `<button class="btn-ghost btn-sm" onclick="openProductForm(${p.id})">✏️</button><button class="btn-danger" onclick="deleteProduct(${p.id})">🗑</button>` : ''}
         </div>
       </div>`;
@@ -656,24 +719,77 @@ function updateBadge() {
   b.classList.remove('pop'); void b.offsetWidth; b.classList.add('pop');
 }
 
+// A cart line is uniquely identified by product + chosen color + size,
+// so the same product in two colors/sizes shows as two separate lines.
+function lineKey(productId, color, size) {
+  return productId + '|' + (color || '') + '|' + (size || '');
+}
+
 function addToCart(id) {
-  const line = CART.find(i => i.productId === id);
-  if (line) line.qty = Math.min(line.qty + 1, 20);
-  else CART.push({ productId: id, qty: 1 });
-  saveCart(); updateBadge();
+  const p = PRODUCTS.find(x => x.id === id);
+  if (!p) return;
+  const hasColors = Array.isArray(p.colors) && p.colors.length;
+  const hasSizes = Array.isArray(p.sizes) && p.sizes.length;
+  if (hasColors || hasSizes) { openVariantPicker(p); return; }
+  putInCart(id, 1, null, null);
   toast('أُضيف المنتج إلى السلة ✓');
 }
 
-function changeQty(id, d) {
-  const line = CART.find(i => i.productId === id);
+function putInCart(id, qty, color, size) {
+  const key = lineKey(id, color, size);
+  const line = CART.find(i => lineKey(i.productId, i.color, i.size) === key);
+  if (line) line.qty = Math.min(line.qty + qty, 20);
+  else CART.push({ productId: id, qty, color: color || null, size: size || null });
+  saveCart(); updateBadge();
+}
+
+// ---- customer variant picker ----
+function openVariantPicker(p) {
+  variantPick = { product: p, color: null, size: null };
+  $('variantTitle').textContent = p.name;
+  $('variantMsg').textContent = '';
+  const colorWrap = $('variantColors'), sizeWrap = $('variantSizes');
+  const colors = Array.isArray(p.colors) ? p.colors : [];
+  const sizes = Array.isArray(p.sizes) ? p.sizes : [];
+  colorWrap.style.display = colors.length ? 'block' : 'none';
+  sizeWrap.style.display = sizes.length ? 'block' : 'none';
+  $('variantColorChips').innerHTML = colors.map(c =>
+    `<button type="button" class="var-chip" onclick="pickVariant('color',this,'${esc(c).replace(/'/g, "\\'")}')">${esc(c)}</button>`).join('');
+  $('variantSizeChips').innerHTML = sizes.map(s =>
+    `<button type="button" class="var-chip" onclick="pickVariant('size',this,'${esc(s).replace(/'/g, "\\'")}')">${esc(s)}</button>`).join('');
+  openModal('variantModal');
+}
+
+function pickVariant(kind, btn, value) {
+  variantPick[kind] = value;
+  btn.parentElement.querySelectorAll('.var-chip').forEach(b => b.classList.remove('sel'));
+  btn.classList.add('sel');
+  $('variantMsg').textContent = '';
+}
+
+function confirmVariant() {
+  if (!variantPick) return;
+  const p = variantPick.product;
+  const needColor = Array.isArray(p.colors) && p.colors.length;
+  const needSize = Array.isArray(p.sizes) && p.sizes.length;
+  if (needColor && !variantPick.color) { $('variantMsg').textContent = 'اختر اللون أولاً'; return; }
+  if (needSize && !variantPick.size) { $('variantMsg').textContent = 'اختر المقاس أولاً'; return; }
+  putInCart(p.id, 1, variantPick.color, variantPick.size);
+  closeModal('variantModal');
+  variantPick = null;
+  toast('أُضيف المنتج إلى السلة ✓');
+}
+
+function changeQty(key, d) {
+  const line = CART.find(i => lineKey(i.productId, i.color, i.size) === key);
   if (!line) return;
   line.qty += d;
-  if (line.qty <= 0) CART = CART.filter(i => i.productId !== id);
+  if (line.qty <= 0) CART = CART.filter(i => lineKey(i.productId, i.color, i.size) !== key);
   saveCart(); updateBadge(); renderCart();
 }
 
-function removeLine(id) {
-  CART = CART.filter(i => i.productId !== id);
+function removeLine(key) {
+  CART = CART.filter(i => lineKey(i.productId, i.color, i.size) !== key);
   saveCart(); updateBadge(); renderCart();
 }
 
@@ -705,15 +821,20 @@ function renderCart() {
     const p = PRODUCTS.find(x => x.id === line.productId);
     if (!p) return;
     itemsTotal += p.price * line.qty;
+    const key = lineKey(line.productId, line.color, line.size);
+    const variantBits = [];
+    if (line.color) variantBits.push('🎨 ' + esc(line.color));
+    if (line.size) variantBits.push('📏 ' + esc(line.size));
+    const variantLine = variantBits.length ? `<div class="order-items-mini" style="margin:2px 0 0">${variantBits.join(' · ')}</div>` : '';
     const el = document.createElement('div');
     el.className = 'cart-line';
     el.innerHTML = `
-      <span class="n">${esc(p.name)}</span>
+      <span class="n">${esc(p.name)}${variantLine}</span>
       <div class="qty-ctl">
-        <button onclick="changeQty(${p.id},-1)">−</button><span>${line.qty}</span><button onclick="changeQty(${p.id},1)">+</button>
+        <button onclick="changeQty('${key}',-1)">−</button><span>${line.qty}</span><button onclick="changeQty('${key}',1)">+</button>
       </div>
       <span class="p">${(p.price * line.qty).toLocaleString('ar-DZ')} د.ج</span>
-      <button class="rm-btn" onclick="removeLine(${p.id})">✕</button>`;
+      <button class="rm-btn" onclick="removeLine('${key}')">✕</button>`;
     box.appendChild(el);
   });
   const w = META.wilayas.find(x => x.code === Number($('coWilaya').value));
@@ -750,7 +871,7 @@ async function checkout() {
         address: $('coAddress').value.trim(),
         wilayaCode: Number($('coWilaya').value),
         deliveryType: getDeliveryType(),
-        items: CART.map(i => ({ productId: i.productId, qty: i.qty }))
+        items: CART.map(i => ({ productId: i.productId, qty: i.qty, color: i.color || null, size: i.size || null }))
       }
     });
     // WhatsApp message with full order details → goes straight to the merchant's phone
@@ -758,7 +879,9 @@ async function checkout() {
     const deliveryLabel = getDeliveryType() === 'office' ? 'مكتب التوصيلات (Stop Desk)' : 'توصيل إلى المنزل';
     const itemLines = CART.map(i => {
       const p = PRODUCTS.find(x => x.id === i.productId);
-      return p ? `• ${p.name} ×${i.qty} = ${p.price * i.qty} د.ج` : '';
+      if (!p) return '';
+      const opts = [i.color ? `اللون: ${i.color}` : '', i.size ? `المقاس: ${i.size}` : ''].filter(Boolean).join('، ');
+      return `• ${p.name}${opts ? ' (' + opts + ')' : ''} ×${i.qty} = ${p.price * i.qty} د.ج`;
     }).filter(Boolean).join('\n');
     const waMsg =
       `طلبية جديدة #${data.orderId} — MB1_shoop\n` +
@@ -852,6 +975,8 @@ function openProductForm(id) {
   editingProductId = id || null;
   pfImageData = '';
   $('pfFile').value = '';
+  $('pfColorInput').value = '';
+  $('pfSizeInput').value = '';
   const sel = $('pfCategory');
   populateCategorySelect();
   $('pfMsg').textContent = '';
@@ -863,6 +988,8 @@ function openProductForm(id) {
     sel.value = p.category;
     $('pfPrice').value = p.price;
     $('pfDesc').value = p.description || '';
+    pfColors = Array.isArray(p.colors) ? p.colors.slice() : [];
+    pfSizes = Array.isArray(p.sizes) ? p.sizes.slice() : [];
     const img = p.image_url || '';
     if (img.startsWith('data:')) { pfImageData = img; $('pfImage').value = ''; }
     else { pfImageData = ''; $('pfImage').value = img; }
@@ -870,9 +997,37 @@ function openProductForm(id) {
   } else {
     $('productModalTitle').textContent = 'إضافة منتج جديد';
     $('pfName').value = ''; $('pfPrice').value = ''; $('pfImage').value = ''; $('pfDesc').value = '';
+    pfColors = []; pfSizes = [];
     setImagePreview('');
   }
+  renderVariantTags();
   openModal('productModal');
+}
+
+// ---- admin variant tag editor (colors / sizes) ----
+function renderVariantTags() {
+  [['colors', pfColors, 'pfColorsList'], ['sizes', pfSizes, 'pfSizesList']].forEach(([kind, arr, listId]) => {
+    $(listId).innerHTML = arr.map((v, idx) =>
+      `<span class="var-tag">${esc(v)}<button type="button" title="حذف" onclick="removeVariant('${kind}',${idx})">✕</button></span>`).join('');
+  });
+}
+
+function addVariant(kind) {
+  const inputId = kind === 'colors' ? 'pfColorInput' : 'pfSizeInput';
+  const arr = kind === 'colors' ? pfColors : pfSizes;
+  const val = $(inputId).value.trim().replace(/\s+/g, ' ').slice(0, 40);
+  if (!val) return;
+  if (arr.length >= 30) { $('pfMsg').textContent = 'الحد الأقصى 30 خياراً'; return; }
+  if (!arr.some(x => x === val)) arr.push(val);
+  $(inputId).value = '';
+  $(inputId).focus();
+  renderVariantTags();
+}
+
+function removeVariant(kind, idx) {
+  const arr = kind === 'colors' ? pfColors : pfSizes;
+  arr.splice(idx, 1);
+  renderVariantTags();
 }
 
 function setImagePreview(src) {
@@ -924,12 +1079,17 @@ function handleImageFile(input) {
 async function submitProduct() {
   const msg = $('pfMsg');
   msg.textContent = '';
+  // flush any label typed but not yet added via the + button
+  if ($('pfColorInput').value.trim()) addVariant('colors');
+  if ($('pfSizeInput').value.trim()) addVariant('sizes');
   const body = {
     name: $('pfName').value.trim(),
     category: $('pfCategory').value,
     price: Number($('pfPrice').value),
     imageUrl: pfImageData || $('pfImage').value.trim(),
-    description: $('pfDesc').value.trim()
+    description: $('pfDesc').value.trim(),
+    colors: pfColors,
+    sizes: pfSizes
   };
   try {
     if (editingProductId) await api('/api/admin/products/' + editingProductId, { method: 'PUT', body });
@@ -964,7 +1124,10 @@ async function openOrders() {
   $('ordersEmpty').style.display = data.orders.length ? 'none' : 'block';
   data.orders.forEach(o => {
     const tr = document.createElement('tr');
-    const itemsTxt = (o.items || []).map(it => `${esc(it.product_name)} ×${it.qty}`).join('، ');
+    const itemsTxt = (o.items || []).map(it => {
+      const opts = [it.color ? '🎨 ' + esc(it.color) : '', it.size ? '📏 ' + esc(it.size) : ''].filter(Boolean).join(' ');
+      return `${esc(it.product_name)} ×${it.qty}${opts ? ' — ' + opts : ''}`;
+    }).join('، ');
     const statusOpts = Object.entries(STATUS_AR)
       .map(([k, v]) => `<option value="${k}" ${k === o.status ? 'selected' : ''}>${v}</option>`).join('');
     tr.innerHTML = `
